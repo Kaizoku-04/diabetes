@@ -1,0 +1,6 @@
+streamlit
+pandas
+firebase-admin
+python-dotenv
+twilio
+requests
