@@ -44,14 +44,23 @@ def send_sms_reminder(message, phone_number):
 # Page Configuration    
 st.set_page_config(page_title="Diabetes Manager", layout="wide")
 
-# Hide Streamlit branding & footer
+# Hide Streamlit branding with CSS
 hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+# Hide Streamlit branding & footer
+hide_streamlit_style_ = """
     <style>
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .st-emotion-cache-1v0mbdj {display: none;}  /* Hides 'Powered by Streamlit' */
     </style>
 """
+st.markdown(hide_streamlit_style_, unsafe_allow_html=True)
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # Authentication System
