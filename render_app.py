@@ -12,7 +12,7 @@ if not firebase_admin._apps:
         "type": os.environ.get("firebase_type"),
         "project_id": os.environ.get("firebase_project_id"),
         "private_key_id": os.environ.get("firebase_private_key_id"),
-        "private_key": os.environ.get("firebase_private_key"),
+        "private_key": os.environ.get("firebase_private_key").replace('\\n', '\n'),
         "client_email": os.environ.get("firebase_client_email"),
         "client_id": os.environ.get("firebase_client_id"),
         "auth_uri": os.environ.get("firebase_auth_uri"),
