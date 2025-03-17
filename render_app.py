@@ -9,16 +9,16 @@ import os
 # Initialize Firebase (if not already initialized)
 if not firebase_admin._apps:
     firebase_cred = {
-        "type": os.getenv("firebase_type"),
-        "project_id": os.getenv("firebase_project_id"),
-        "private_key_id": os.getenv("firebase_private_key_id"),
-        "private_key": os.getenv("firebase_private_key"),
-        "client_email": os.getenv("firebase_client_email"),
-        "client_id": os.getenv("firebase_client_id"),
-        "auth_uri": os.getenv("firebase_auth_uri"),
-        "token_uri": os.getenv("firebase_token_uri"),
-        "auth_provider_x509_cert_url": os.getenv("firebase_auth_provider_x509_cert_url"),
-        "client_x509_cert_url": os.getenv("firebase_client_x509_cert_url")
+        "type": os.environ.get("firebase_type"),
+        "project_id": os.environ.get("firebase_project_id"),
+        "private_key_id": os.environ.get("firebase_private_key_id"),
+        "private_key": os.environ.get("firebase_private_key"),
+        "client_email": os.environ.get("firebase_client_email"),
+        "client_id": os.environ.get("firebase_client_id"),
+        "auth_uri": os.environ.get("firebase_auth_uri"),
+        "token_uri": os.environ.get("firebase_token_uri"),
+        "auth_provider_x509_cert_url": os.environ.get("firebase_auth_provider_x509_cert_url"),
+        "client_x509_cert_url": os.environ.get("firebase_client_x509_cert_url")
     }
     cred = credentials.Certificate(firebase_cred)  # Download from Firebase Console
     firebase_admin.initialize_app(cred)
@@ -28,13 +28,13 @@ db = firestore.client()
 # SMS Reminder Function
 def send_sms_reminder(message, phone_number):
     try:
-        account_sid = os.getenv("twilio_account_sid")
-        auth_token = os.getenv("twilio_auth_token")
+        account_sid = os.environ.get("twilio_account_sid")
+        auth_token = os.environ.get("twilio_auth_token")
         client = Client(account_sid, auth_token)
         
         message = client.messages.create(
             body=message,
-            from_= os.getenv("twilio_phone_number"),
+            from_= os.environ.get("twilio_phone_number"),
             to=phone_number
         )
         st.success("Reminder sent successfully!")
