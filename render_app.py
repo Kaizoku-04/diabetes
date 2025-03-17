@@ -34,7 +34,7 @@ def send_sms_reminder(message, phone_number):
         
         message = client.messages.create(
             body=message,
-            from_= os.getenv("twilio_phone_number")
+            from_= os.getenv("twilio_phone_number"),
             to=phone_number
         )
         st.success("Reminder sent successfully!")
