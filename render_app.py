@@ -28,13 +28,13 @@ db = firestore.client()
 # SMS Reminder Function
 def send_sms_reminder(message, phone_number):
     try:
-        account_sid = st.secrets["twilio"]["account_sid"]
-        auth_token = st.secrets["twilio"]["auth_token"]
+        account_sid = os.getenv("twilio_account_sid")
+        auth_token = os.getenv("twilio_auth_token")
         client = Client(account_sid, auth_token)
         
         message = client.messages.create(
             body=message,
-            from_=st.secrets["twilio"]["phone_number"],
+            from_= os.getenv("twilio_phone_number")
             to=phone_number
         )
         st.success("Reminder sent successfully!")
@@ -159,7 +159,7 @@ elif menu == "Chatbot":
             import google.generativeai as genai
             
             # Configure Gemini
-            genai.configure(api_key=st.secrets["google_gemini"]["api_key"])
+            genai.configure(api_key=os.getenv("google_gemini_api_key"))
             model = genai.GenerativeModel('gemini-1.5-pro-latest')
             
             # Create diabetes-focused chat
