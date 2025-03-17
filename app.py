@@ -44,6 +44,16 @@ def send_sms_reminder(message, phone_number):
 # Page Configuration    
 st.set_page_config(page_title="Diabetes Manager", layout="wide")
 
+# Hide Streamlit branding with CSS
+hide_streamlit_style = """
+    <style>
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    </style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 # Authentication System
 if 'user' not in st.session_state:
     st.session_state.user = None
