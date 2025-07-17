@@ -1,4 +1,4 @@
-streamlit==1.43.1
+streamlit
 pandas==2.2.3
 twilio==9.4.6
 requests==2.11.1 
