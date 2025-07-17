@@ -1,16 +1,13 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, time
+from datetime import datetime
 from twilio.rest import Client
 import requests
 import firebase_admin
-from firebase_admin import credentials, firestore, auth
-import pyrebase
+from firebase_admin import credentials, firestore
 from apscheduler.schedulers.background import BackgroundScheduler
-import threading
 import re
 import pytz
-import json
 def get_nutrition_info(food):
     try:
         response = requests.get(
@@ -35,18 +32,18 @@ def get_nutrition_info(food):
         st.error(f"API Error: {str(e)}")
         return None
 # Initialize Firebase (if not already initialized)
-firebase_client_config = {
-    "apiKey": st.secrets["firebase"]["api_key"],
-    "authDomain": st.secrets["firebase"]["auth_domain"],
-    "projectId": st.secrets["firebase"]["project_id"],
-    "storageBucket": st.secrets["firebase"]["storage_bucket"],
-    "messagingSenderId": st.secrets["firebase"]["messaging_sender_id"],
-    "appId": st.secrets["firebase"]["app_id"],
-    "databaseURL": ""
-}
+# firebase_client_config = {
+#     "apiKey": st.secrets["firebase"]["api_key"],
+#     "authDomain": st.secrets["firebase"]["auth_domain"],
+#     "projectId": st.secrets["firebase"]["project_id"],
+#     "storageBucket": st.secrets["firebase"]["storage_bucket"],
+#     "messagingSenderId": st.secrets["firebase"]["messaging_sender_id"],
+#     "appId": st.secrets["firebase"]["app_id"],
+#     "databaseURL": ""
+# }
 
-firebase_client = pyrebase.initialize_app(firebase_client_config)
-auth_client = firebase_client.auth()
+# firebase_client = pyrebase.initialize_app(firebase_client_config)
+# auth_client = firebase_client.auth()
 
 if not firebase_admin._apps:
     try:
@@ -132,6 +129,37 @@ st.markdown(hide_streamlit_style_, unsafe_allow_html=True)
 if 'user' not in st.session_state:
     st.session_state.user = None
 
+#sign up and sign in functions
+FIREBASE_API_KEY = st.secrets.firebase.api_key
+def firebase_sign_up(email: str, password: str):
+    url = (
+        f"https://identitytoolkit.googleapis.com/v1/accounts:signUp"
+        f"?key={FIREBASE_API_KEY}"
+    )
+    payload = {
+        "email": email,
+        "password": password,
+        "returnSecureToken": True
+    }
+    resp = requests.post(url, json=payload)
+    resp.raise_for_status()
+    return resp.json()   # ⇒ has `idToken`, `localId`, `refreshToken`, etc.
+
+def firebase_sign_in(email: str, password: str):
+    url = (
+        f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword"
+        f"?key={FIREBASE_API_KEY}"
+    )
+    payload = {
+        "email": email,
+        "password": password,
+        "returnSecureToken": True
+    }
+    resp = requests.post(url, json=payload)
+    resp.raise_for_status()
+    return resp.json()   # ⇒ has `idToken`, `localId`, `refreshToken`, etc.
+
+
 # Show login/signup form if not authenticated
 if not st.session_state.user:
     # Centered container
@@ -171,7 +199,7 @@ if not st.session_state.user:
                                 st.error("Passwords do not match!")
                             else:
                                 # Create user with client SDK
-                                user = auth_client.create_user_with_email_and_password(email, password)
+                                user = firebase_sign_up(email, password)
                                 # Add user to Firestore
                                 db.collection("users").document(user['localId']).set({
                                     "first_name": first_name,
@@ -190,7 +218,7 @@ if not st.session_state.user:
                                 st.success(f"Welcome, {first_name}! 🎉")
                                 st.rerun()
                         else:  # Login
-                            user = auth_client.sign_in_with_email_and_password(email, password)
+                            user = firebase_sign_in(email, password)
                             user_doc = db.collection("users").document(user['localId']).get()
                             if user_doc.exists:
                                 user_data = user_doc.to_dict()
