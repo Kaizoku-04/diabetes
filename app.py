@@ -5,25 +5,92 @@ from twilio.rest import Client
 import requests
 import firebase_admin
 from firebase_admin import credentials, firestore, auth
-
+import pyrebase
+from apscheduler.schedulers.background import BackgroundScheduler
+import threading
+import re
+import pytz
+import json
+def get_nutrition_info(food):
+    try:
+        response = requests.get(
+            "https://api.nal.usda.gov/fdc/v1/foods/search",
+            params={
+                "api_key": st.secrets.usda.api_key,
+                "query": food,
+                "pageSize": 1
+            }
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        if data['foods']:
+            nutrients = data['foods'][0]['foodNutrients']
+            return {
+                'carbs': next(n['value'] for n in nutrients if n['nutrientName'] == 'Carbohydrate, by difference'), 
+                'protein': next(n['value'] for n in nutrients if n['nutrientName'] == 'Protein')
+                }
+        return None
+    except Exception as e:
+        st.error(f"API Error: {str(e)}")
+        return None
 # Initialize Firebase (if not already initialized)
+firebase_client_config = {
+    "apiKey": st.secrets["firebase"]["api_key"],
+    "authDomain": st.secrets["firebase"]["auth_domain"],
+    "projectId": st.secrets["firebase"]["project_id"],
+    "storageBucket": st.secrets["firebase"]["storage_bucket"],
+    "messagingSenderId": st.secrets["firebase"]["messaging_sender_id"],
+    "appId": st.secrets["firebase"]["app_id"],
+    "databaseURL": ""
+}
+
+firebase_client = pyrebase.initialize_app(firebase_client_config)
+auth_client = firebase_client.auth()
+
 if not firebase_admin._apps:
-    firebase_cred = {
-        "type": st.secrets.firebase.type,
-        "project_id": st.secrets.firebase.project_id,
-        "private_key_id": st.secrets.firebase.private_key_id,
-        "private_key": st.secrets.firebase.private_key,
-        "client_email": st.secrets.firebase.client_email,
-        "client_id": st.secrets.firebase.client_id,
-        "auth_uri": st.secrets.firebase.auth_uri,
-        "token_uri": st.secrets.firebase.token_uri,
-        "auth_provider_x509_cert_url": st.secrets.firebase.auth_provider_x509_cert_url,
-        "client_x509_cert_url": st.secrets.firebase.client_x509_cert_url
-    }
-    cred = credentials.Certificate(firebase_cred)  # Download from Firebase Console
-    firebase_admin.initialize_app(cred)
+    try:
+        cred = credentials.Certificate({
+                "type": st.secrets.firebase.type,
+                "project_id": st.secrets.firebase.project_id,
+                "private_key_id": st.secrets.firebase.private_key_id,
+                "private_key": st.secrets.firebase.private_key,
+                "client_email": st.secrets.firebase.client_email,
+                "client_id": st.secrets.firebase.client_id,
+                "auth_uri": st.secrets.firebase.auth_uri,
+                "token_uri": st.secrets.firebase.token_uri,
+                "auth_provider_x509_cert_url": st.secrets.firebase.auth_provider_x509_cert_url,
+                "client_x509_cert_url": st.secrets.firebase.client_x509_cert_url
+            })
+        firebase_admin.initialize_app(cred)
+    except Exception as e:
+        st.error(f"Firebase initialization error: {str(e)}")
 
 db = firestore.client()
+def log_medication_taken(med_name):
+    db.collection("med_history").add({
+        "user": st.session_state.user["first_name"],
+        "medicine": med_name,
+        "timestamp": firestore.SERVER_TIMESTAMP
+    })
+
+def check_reminders():
+    user_email = st.session_state.get("user", {}).get("email", None)  # Safe access
+    if user_email:
+        now = datetime.now().strftime("%H:%M")
+        reminders = db.collection("reminders").where("User", "==", user_email).stream()
+        for rem in reminders:
+            rem_data = rem.to_dict()
+            if rem_data.get('Time') == now:
+                send_sms_reminder(f"Time to take {rem_data.get('Medicine')}", st.secrets.user.phone)
+
+# Initialize scheduler once
+if 'scheduler' not in st.session_state:
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_reminders, 'interval', minutes=1)
+    scheduler.start()
+    st.session_state.scheduler = scheduler
+
 
 # SMS Reminder Function
 def send_sms_reminder(message, phone_number):
@@ -61,8 +128,6 @@ hide_streamlit_style_ = """
     </style>
 """
 st.markdown(hide_streamlit_style_, unsafe_allow_html=True)
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
 # Authentication System
 if 'user' not in st.session_state:
     st.session_state.user = None
@@ -88,8 +153,15 @@ if not st.session_state.user:
                 password = st.text_input("Password", type="password")
                 
                 if auth_mode == "Sign Up":
+                    first_name = st.text_input("First Name")
+                    last_name = st.text_input("Last Name")  
                     confirm_password = st.text_input("Confirm Password", type="password")
-                
+                    PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
+                    phone = st.text_input("Phone Number (+1234567890)")
+                    if not re.match(PHONE_REGEX, phone):
+                        st.error("Please enter valid E.164 format: +[country code][number]")
+                    utc_index = pytz.common_timezones.index("UTC")
+                    timezone = st.selectbox("Timezone", pytz.common_timezones, index=utc_index)
                 submitted = st.form_submit_button("Login" if auth_mode == "Login" else "Sign Up")
                 
                 if submitted:
@@ -98,27 +170,39 @@ if not st.session_state.user:
                             if password != confirm_password:
                                 st.error("Passwords do not match!")
                             else:
-                                # Create Firebase user
-                                user = auth.create_user(
-                                    email=email,
-                                    password=password
-                                )
-                                st.session_state.user = email
-                                st.rerun()
+                                # Create user with client SDK
+                                user = auth_client.create_user_with_email_and_password(email, password)
+                                # Add user to Firestore
+                                db.collection("users").document(user['localId']).set({
+                                    "first_name": first_name,
+                                    "last_name": last_name,
+                                    "email": email,
+                                    "phone": phone,
+                                    "timezone": timezone,  # Default
+                                    "created_at": firestore.SERVER_TIMESTAMP
                                 
+                                })
+                                st.session_state.user = {
+                                    "email": email,
+                                    "first_name": first_name,
+                                    "last_name": last_name
+                                }
+                                st.success(f"Welcome, {first_name}! 🎉")
+                                st.rerun()
                         else:  # Login
-                            # Verify credentials (this is simplified - use Firebase client SDK for full auth)
-                            user = auth.get_user_by_email(email)
-                            # In production, use: auth.sign_in_with_email_and_password(email, password)
-                            st.session_state.user = email
-                            st.rerun()
-                            
-                    except auth.EmailAlreadyExistsError:
-                        st.error("Email already registered!")
-                    except auth.UserNotFoundError:
-                        st.error("User not found!")
-                    except ValueError as e:
-                        st.error(f"Invalid input: {str(e)}")
+                            user = auth_client.sign_in_with_email_and_password(email, password)
+                            user_doc = db.collection("users").document(user['localId']).get()
+                            if user_doc.exists:
+                                user_data = user_doc.to_dict()
+                                st.session_state.user = {
+                                    "email": email,
+                                    "first_name": user_data.get("first_name", "User"),
+                                    "last_name": user_data.get("last_name", "")
+                                }
+                                st.success(f"Welcome back, {st.session_state.user['first_name']}! 😊")
+                                st.rerun()
+                            else:
+                                st.error("User details not found in the database.")
                     except Exception as e:
                         st.error(f"Authentication failed: {str(e)}")
     
@@ -127,19 +211,18 @@ if not st.session_state.user:
 # Main app content (only shown after login)
 st.sidebar.title("Navigation")
 menu = st.sidebar.radio("Main Menu", ["Home", "Chatbot", "Schedule", "Diet Plan", "Medication Reminders"])
-
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.clear()
+    st.rerun()
 # Home Page
 if menu == "Home":
-    st.title("Welcome to Diabetes Manager")
-    st.image("https://www.lanermc.org/hs-fs/hubfs/diabetes.jpeg?width=300&name=diabetes.jpeg", width=300)
-    st.write("""
-    Manage your diabetes with these features:
-    - Chat with our health assistant
-    - Schedule appointments
-    - Get diet and nutrition guidance
-    - Set medication reminders
-    """)
-
+    st.title(f"Welcome back, {st.session_state.user["first_name"]}!")
+    today = datetime.today().strftime("%A, %B %d")
+    st.markdown(f"**Today is {today}** - Here's your daily overview:")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Next Appointment", "Dr. Smith\n3:00 PM")
+    col2.metric("Medications Due", "2 Remaining")
+    col3.metric("Blood Sugar", "120 mg/dL")
 #chatbot
 elif menu == "Chatbot":
     st.title("Health Assistant Chatbot")
@@ -167,15 +250,11 @@ elif menu == "Chatbot":
             
             # Add system prompt and user question
             response = chat.send_message(f"""
-                [System Prompt] You are a diabetes management assistant. Provide:
-                - Evidence-based medical information
-                - Nutrition advice for diabetics
-                - Exercise recommendations
-                - Blood sugar monitoring tips
-                - Always remind users to consult their doctor
-                - Keep responses under 300 words
-                
-                [User Question] {prompt}
+            [System Prompt] You are a diabetes management assistant. Important:
+            - Always state "I am not a doctor" before medical advice
+            - Cite sources from ADA (American Diabetes Association)
+            - Never suggest altering medication without doctor consultation
+            [User Question] {prompt}
             """)
             
             return response.text
@@ -191,6 +270,12 @@ elif menu == "Chatbot":
         "thanks": "You're welcome! Remember to always consult your healthcare team for personal advice."
     }
 
+    EMERGENCY_KEYWORDS = {
+    "emergency": "🚨 Seek immediate medical help for:",
+    "hypo": "Hypoglycemia symptoms: Shaking, sweating. Treat with 15g fast-acting carbs",
+    "hyper": "Hyperglycemia symptoms: Thirst, fatigue. Check blood sugar, contact doctor"
+    }
+
     # Chat input
     if prompt := st.chat_input("Ask about diabetes"):
         # Add user message to chat history
@@ -203,11 +288,17 @@ elif menu == "Chatbot":
             if key in lower_prompt:
                 quick_response = QUICK_RESPONSES[key]
                 break
-        
+        emergency_response = None
+        for key in EMERGENCY_KEYWORDS:
+            if key in lower_prompt:
+                emergency_response = EMERGENCY_KEYWORDS[key]
+                break
         # Get response from Gemini or quick responses
         with st.spinner("Analyzing your question..."):
             if quick_response:
                 response = quick_response
+            elif emergency_response:
+                response = emergency_response
             else:
                 response = get_gemini_response(prompt)
         
@@ -229,64 +320,79 @@ elif menu == "Schedule":
         notes = st.text_area("Notes")
         
         if st.form_submit_button("Add Appointment"):
-            new_appt = {
-                "Doctor": doc_name,
-                "Date": appt_date.strftime("%Y-%m-%d"),
-                "Time": appt_time.strftime("%H:%M"),
-                "Notes": notes,
-                "User": st.session_state.user
-            }
-            db.collection("appointments").add(new_appt)
-            st.success("Appointment added!")
+            try:
+                # Combine date and time
+                selected_datetime = datetime.combine(appt_date, appt_time)
+                
+                new_appt = {
+                    "Doctor": doc_name,
+                    "DateTime": selected_datetime,
+                    "Notes": notes,
+                    "User": st.session_state.user["first_name"]
+                }
+                db.collection("appointments").add(new_appt)
+                st.success("Appointment added!")
+            except Exception as e:
+                st.error(f"Error saving appointment: {str(e)}")
             st.rerun()
 
     # Display and manage appointments
     st.subheader("Upcoming Appointments")
-    appointments = db.collection("appointments").where("User", "==", st.session_state.user).stream()
     
-    # Create list of appointments with document IDs
-    appointment_list = []
-    doc_ids = []
-    for doc in appointments:
-        appointment_list.append(doc.to_dict())
-        doc_ids.append(doc.id)
-    
-    # Display table with delete options
-    df = pd.DataFrame(appointment_list)
-    if not df.empty:
-        df["Delete"] = False  # Add checkbox column
-        
-        # Display editable dataframe
-        edited_df = st.data_editor(
-            df,
-            column_config={
-                "Delete": st.column_config.CheckboxColumn(
-                    "Delete?",
-                    help="Select appointments to delete",
-                    default=False,
-                )
-            },
-            hide_index=True,
-            use_container_width=True
-        )
-        
-        # Delete selected appointments
-        if st.button("Delete Selected Appointments"):
-            selected_indices = edited_df[edited_df["Delete"]].index
-            for idx in selected_indices:
-                db.collection("appointments").document(doc_ids[idx]).delete()
-            st.success("Selected appointments deleted!")
-            st.rerun()
-        
-        # Delete all appointments button
-        if st.button("⚠️ Delete ALL Appointments"):
-            for doc_id in doc_ids:
-                db.collection("appointments").document(doc_id).delete()
-            st.success("All appointments deleted!")
-            st.rerun()
-    else:
-        st.info("No upcoming appointments found")
-    
+    try:
+        appointments = db.collection("appointments") \
+            .where("User", "==", st.session_state.user["first_name"]) \
+            .order_by("DateTime") \
+            .stream()
+
+        appointment_list = []
+        doc_ids = []
+        for doc in appointments:
+            data = doc.to_dict()
+            # Convert Firestore timestamp to datetime
+            data["DateTime"] = data["DateTime"].strftime("%Y-%m-%d %H:%M")
+            appointment_list.append(data)
+            doc_ids.append(doc.id)
+            
+        # Display table with delete options
+        df = pd.DataFrame(appointment_list)
+        if not df.empty:
+            df["Delete"] = False  # Add checkbox column
+            
+            # Display editable dataframe
+            edited_df = st.data_editor(
+                df,
+                column_config={
+                    "Delete": st.column_config.CheckboxColumn(
+                        "Delete?",
+                        help="Select appointments to delete",
+                        default=False,
+                    )
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            # Delete selected appointments
+            if st.button("Delete Selected Appointments"):
+                if st.checkbox("Confirm deletion"):
+                    selected_indices = edited_df[edited_df["Delete"]].index
+                    for idx in selected_indices:
+                        db.collection("appointments").document(doc_ids[idx]).delete()
+                    st.success("Selected appointments deleted!")
+                    st.rerun()
+            
+            # Delete all appointments button
+            if st.button("⚠️ Delete ALL Appointments"):
+                if st.checkbox("Confirm deletion"):
+                    for doc_id in doc_ids:
+                        db.collection("appointments").document(doc_id).delete()
+                    st.success("All appointments deleted!")
+                    st.rerun()
+        else:
+            st.info("No upcoming appointments found")
+    except Exception as e:
+        st.error(f"Error loading appointments: {str(e)}")
     ## Display Appointments
     #st.subheader("Upcoming Appointments")
     #appointments = db.collection("appointments").where("User", "==", st.session_state.user).stream()
@@ -296,7 +402,13 @@ elif menu == "Schedule":
 # Diet Plan Page
 elif menu == "Diet Plan":
     st.title("Diabetes-Friendly Diet Guide")
-    
+    food = st.text_input("Check food nutrition")
+    if food:
+        nutrition = get_nutrition_info(food)
+        if nutrition:
+            st.write(f"🍞 Carbs: {nutrition['carbs']}g | 🥩 Protein: {nutrition['protein']}g")
+        else:
+            st.warning("No data found - try exact terms like 'raw potato'")
     with st.expander("📌 Key Dietary Principles"):
         st.write("""
         - Focus on consistent carbohydrate intake
@@ -418,35 +530,39 @@ elif menu == "Medication Reminders":
         submit_button = st.form_submit_button("Set Reminder")
         
         if submit_button:
-            if st.session_state.frequency == "Specific Days" and not st.session_state.selected_days:
+            # Validation checks
+            if not med_name.strip():
+                st.error("Medicine name cannot be empty!")
+            elif not re.match("^[a-zA-Z0-9\- ]+$", med_name):
+                st.error("Invalid medication name - only letters, numbers and hyphens allowed")
+            elif st.session_state.frequency == "Specific Days" and not st.session_state.selected_days:
                 st.error("Please select at least one day")
             else:
                 new_reminder = {
                     "Medicine": med_name,
                     "Time": selected_time,
                     "Frequency": st.session_state.frequency if st.session_state.frequency != "Specific Days" else ", ".join(st.session_state.selected_days),
-                    "User": st.session_state.user
+                    "User": st.session_state.user["first_name"]
                 }
                 
                 db.collection("reminders").add(new_reminder)
                 st.success("Reminder set!")
                 st.rerun()
 
-    # ... (rest of the display and delete code remains the same)
-
-    # ... (rest of the code remains the same for displaying and deleting reminders)
-
     # Display and delete reminders
     st.subheader("Active Reminders")
-    reminders = db.collection("reminders").where("User", "==", st.session_state.user).stream()
+    reminders = db.collection("reminders") \
+        .where("User", "==", st.session_state.user["first_name"]) \
+        .order_by("Time", direction=firestore.Query.ASCENDING) \
+        .stream()
     
     # Create list of reminders with document IDs
     reminder_list = []
     doc_ids = []
     for doc in reminders:
         data = doc.to_dict()
-        # Format time for display
-        data["Time"] = datetime.strptime(data["Time"], "%H:%M").strftime("%I:%M %p")
+        # Format time for display, safely handle missing fields
+        data["Time"] = datetime.strptime(data["Time"], "%H:%M").strftime("%I:%M %p") if "Time" in data else "N/A"
         reminder_list.append(data)
         doc_ids.append(doc.id)
     
@@ -468,8 +584,7 @@ elif menu == "Medication Reminders":
             use_container_width=True,
             column_order=("Medicine", "Time", "Frequency", "Delete")
         )
-        
-        col1, col2 = st.columns([1, 2])
+        col1, col2, col3 = st.columns([1,1,2])
         with col1:
             if st.button("Delete Selected"):
                 selected_indices = edited_df[edited_df["Delete"]].index
@@ -477,12 +592,53 @@ elif menu == "Medication Reminders":
                     db.collection("reminders").document(doc_ids[idx]).delete()
                 st.success("Selected reminders deleted!")
                 st.rerun()
-        
+
         with col2:
-            if st.button("⚠️ Delete ALL Reminders", type="secondary"):
-                for doc_id in doc_ids:
-                    db.collection("reminders").document(doc_id).delete()
-                st.success("All reminders deleted!")
+            if st.button("✅ Mark as Taken"):
+                selected_indices = edited_df[edited_df["Delete"]].index  
+                for idx in selected_indices:
+                    log_medication_taken(edited_df.iloc[idx]["Medicine"])
+                st.success(f"Logged {len(selected_indices)} medications taken!")
+                st.balloons()
                 st.rerun()
+        with col3:
+            if st.button("⚠️ Delete ALL Reminders", type="secondary"):
+               for doc_id in doc_ids:
+                    db.collection("reminders").document(doc_id).delete()
+               st.success("All reminders deleted!")
+               st.rerun()
+
+
     else:
         st.info("No active reminders found")
+    
+    st.subheader("Medication History")
+    try:
+        # Get ALL documents first before processing
+        history_docs = db.collection("med_history") \
+            .where("user", "==", st.session_state.user["first_name"]) \
+            .order_by("timestamp", direction=firestore.Query.DESCENDING) \
+            .stream()  # <-- ADD THIS TO GET ACTUAL DOCUMENTS
+        
+        history_data = []
+        for doc in history_docs:  # Now iterating over document snapshots
+            data = doc.to_dict()
+            # Convert Firestore Timestamp to formatted string
+            if 'timestamp' in data:
+                data["timestamp"] = data["timestamp"].strftime("%Y-%m-%d %H:%M")
+            else:
+                data["timestamp"] = "N/A"
+            history_data.append(data)
+        
+        if history_data:
+            st.dataframe(
+                pd.DataFrame(history_data),
+                column_config={"timestamp": "Time Taken", "medicine": "Medication"},
+                hide_index=True,
+                use_container_width=True
+            )
+        else:
+            st.info("No medication history recorded yet")
+            
+    except Exception as e:
+        st.error(f"Error loading history: {str(e)}")
