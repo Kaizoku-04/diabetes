@@ -3,9 +3,9 @@ pandas
 twilio
 requests
 firebase-admin
-pyrebase=3.0.27
+pyrebase==3.0.27
 apscheduler
 pytz
-urllib3=1.26.20
-gcloud=0.18.3
-setuptools=76.0.0
+urllib3==1.26.20
+gcloud==0.18.3
+setuptools==76.0.0
