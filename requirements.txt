@@ -6,3 +6,4 @@ firebase-admin
 pyrebase
 apscheduler
 pytz
+urllib3<2.0
