@@ -1,9 +1,8 @@
 streamlit
 pandas
-firebase-admin
-python-dotenv
 twilio
 requests
+firebase-admin
 pyrebase
-pycryptodome
-urllib3==1.26.15
+apscheduler
+pytz
