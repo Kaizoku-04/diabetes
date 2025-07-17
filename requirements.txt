@@ -8,3 +8,4 @@ apscheduler
 pytz
 urllib3=1.26.20
 gcloud=0.18.3
+setuptools=76.0.0
