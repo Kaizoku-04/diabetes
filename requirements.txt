@@ -4,4 +4,6 @@ firebase-admin
 python-dotenv
 twilio
 requests
+pyrebase
 pycryptodome
+urllib3==1.26.15
