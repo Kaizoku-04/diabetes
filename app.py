@@ -533,7 +533,7 @@ elif menu == "Medication Reminders":
             # Validation checks
             if not med_name.strip():
                 st.error("Medicine name cannot be empty!")
-            elif not re.match("^[a-zA-Z0-9\- ]+$", med_name):
+            elif not re.match(r"^[a-zA-Z0-9\- ]+$", med_name):
                 st.error("Invalid medication name - only letters, numbers and hyphens allowed")
             elif st.session_state.frequency == "Specific Days" and not st.session_state.selected_days:
                 st.error("Please select at least one day")
