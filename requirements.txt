@@ -4,3 +4,4 @@ firebase-admin
 python-dotenv
 twilio
 requests
+pyrebase
