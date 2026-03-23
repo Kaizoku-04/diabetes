@@ -5,8 +5,6 @@ import streamlit as st
 from apscheduler.schedulers.background import BackgroundScheduler
 from firebase_admin import credentials, firestore
 
-from services import send_sms_reminder
-
 
 def initialize_firestore():
     if not firebase_admin._apps:
@@ -50,9 +48,7 @@ def check_reminders(db):
         for rem in reminders:
             rem_data = rem.to_dict()
             if rem_data.get("Time") == now:
-                send_sms_reminder(
-                    f"Time to take {rem_data.get('Medicine')}", st.secrets.user.phone
-                )
+                st.toast(f"🔔 Reminder: Time to take {rem_data.get('Medicine')}")
 
 
 def initialize_scheduler(db):

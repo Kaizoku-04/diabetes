@@ -2,6 +2,6 @@ streamlit
 pandas
 firebase-admin
 python-dotenv
-twilio
 requests
 apscheduler
+streamlit-google-auth

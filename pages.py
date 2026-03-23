@@ -4,6 +4,7 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 from firebase_admin import firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 from data_layer import log_medication_taken
 from services import format_firestore_datetime, get_gemini_response, get_nutrition_info
@@ -99,7 +100,7 @@ def render_schedule_page(db):
     try:
         appointments = (
             db.collection("appointments")
-            .where("User", "==", st.session_state.user["first_name"])
+            .where(filter=FieldFilter("User", "==", st.session_state.user["first_name"]))
             .order_by("DateTime")
             .stream()
         )
@@ -126,7 +127,7 @@ def render_schedule_page(db):
                 )
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
         )
 
         if st.button("Delete Selected Appointments") and st.checkbox("Confirm deletion"):
@@ -252,7 +253,7 @@ def render_medication_page(db):
     st.subheader("Active Reminders")
     reminders = (
         db.collection("reminders")
-        .where("User", "==", st.session_state.user["first_name"])
+        .where(filter=FieldFilter("User", "==", st.session_state.user["first_name"]))
         .order_by("Time", direction=firestore.Query.ASCENDING)
         .stream()
     )
@@ -276,7 +277,7 @@ def render_medication_page(db):
                 )
             },
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_order=("Medicine", "Time", "Frequency", "Delete"),
         )
 
@@ -311,7 +312,7 @@ def render_medication_page(db):
     try:
         history_docs = (
             db.collection("med_history")
-            .where("user", "==", st.session_state.user["first_name"])
+            .where(filter=FieldFilter("user", "==", st.session_state.user["first_name"]))
             .order_by("timestamp", direction=firestore.Query.DESCENDING)
             .stream()
         )
@@ -327,7 +328,7 @@ def render_medication_page(db):
                 pd.DataFrame(history_data),
                 column_config={"timestamp": "Time Taken", "medicine": "Medication"},
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
             )
         else:
             st.info("No medication history recorded yet")

@@ -1,4 +1,30 @@
-".streamlit/secrets.toml" 
-"firebase-key.json" 
-"__pycache__/" 
-"venv/" 
+# Streamlit & Auth Secrets
+.streamlit/secrets.toml
+google_credentials.json
+*-key.json
+
+# Environment
+.env
+.venv/
+venv/
+diabetes_venv/
+
+# Python caching
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+dist/
+build/

@@ -2,7 +2,6 @@ from datetime import datetime
 
 import requests
 import streamlit as st
-from twilio.rest import Client
 
 
 def get_nutrition_info(food: str):
@@ -34,22 +33,6 @@ def get_nutrition_info(food: str):
     except Exception as e:
         st.error(f"API Error: {str(e)}")
         return None
-
-
-def send_sms_reminder(message: str, phone_number: str):
-    try:
-        account_sid = st.secrets["twilio"]["account_sid"]
-        auth_token = st.secrets["twilio"]["auth_token"]
-        client = Client(account_sid, auth_token)
-
-        client.messages.create(
-            body=message,
-            from_=st.secrets["twilio"]["phone_number"],
-            to=phone_number,
-        )
-        st.success("Reminder sent successfully!")
-    except Exception as e:
-        st.error(f"Failed to send SMS: {e}")
 
 
 def get_gemini_response(prompt: str) -> str:
